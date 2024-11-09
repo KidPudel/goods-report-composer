@@ -11,6 +11,7 @@ import (
 	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/stealth"
+	"github.com/xuri/excelize/v2"
 )
 
 const (
@@ -62,6 +63,10 @@ func main() {
 	}
 
 	fmt.Println(goods)
+
+	if err = formTable(goods); err != nil {
+		log.Fatal(err)
+	}
 
 }
 
@@ -145,4 +150,25 @@ func scrapeGoods(goodsNumbers []string) ([]goodsInfo, error) {
 		goods[i] = good
 	}
 	return goods, nil
+}
+
+func formTable(goods []goodsInfo) error {
+	// excelize.
+	f := excelize.NewFile()
+	defer func() {
+		if err := f.Close(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	for i, good := range goods {
+		f.SetCellValue("Sheet1", fmt.Sprint("A", i+1), good.title)
+		f.SetCellValue("Sheet1", fmt.Sprint("B", i+1), good.price)
+		f.SetCellValue("Sheet1", fmt.Sprint("C", i+1), good.unit)
+	}
+	if err := f.SaveAs("/Users/iggysleepy/Downloads/GoodsReportTry.xlsx"); err != nil {
+		return err
+	}
+
+	return nil
 }
