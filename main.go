@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/stealth"
 )
@@ -25,6 +27,8 @@ func main() {
 		Set("user-data-dir", userData).
 		Set("profile-directory", userProfile).
 		Set("disable-blink-features", "AutomationControlled").
+		Set("--no-sandbox", "true").
+		Set("--disable-extensions", "true").
 		MustLaunch()
 
 	browser := rod.New().ControlURL(launcherURL).MustConnect()
@@ -35,8 +39,31 @@ func main() {
 
 	sp := page.MustNavigate(url)
 
-	fmt.Println(sp.MustHTML())
+	time.Sleep(time.Second * 5)
+
+	searchForElementResult, err := sp.Search("input.input__field.input-search__field.qa-search-field.js-field-input.js-search-input.ui-autocomplete-input")
+	if err != nil {
+		log.Fatal("failed to get search bar: ", err.Error())
+	}
+
+	searchBar := searchForElementResult.First
+
+	err = searchBar.WaitWritable()
+	if err != nil {
+		log.Fatal("failed to get wait: ", err.Error())
+	}
+
+	fmt.Println("end writable")
+
+	err = searchBar.Hover()
+	if err != nil {
+		log.Fatal("failed to hover: ", err.Error())
+	}
+	searchBar.MustClick()
+
+	err = searchBar.Input("1308488")
+	time.Sleep(time.Second * 3)
+	searchBar.MustKeyActions().Press(input.Enter)
 
 	time.Sleep(time.Second * 30)
-
 }
