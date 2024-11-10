@@ -1,12 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/stealth"
+	"github.com/xuri/excelize/v2"
 )
 
 const (
@@ -17,7 +22,61 @@ const (
 	url            = "https://komus.ru"
 )
 
+const (
+	searchBarQuery = "input.input__field.input-search__field.qa-search-field.js-field-input.js-search-input.ui-autocomplete-input"
+)
+
+const (
+	title = "title"
+	price = "price"
+	unit  = "unit"
+)
+
+var (
+	goodsQueries = map[string]string{
+		title: "h1.product-details-page__title",
+		price: "span.js-current-price",
+		unit:  "span.product-price__current-price.product-price__current-price--unit-of-sale",
+	}
+)
+
 func main() {
+	inputReader := bufio.NewReader(os.Stdout)
+
+	goodsNumbers := make([]string, 0)
+
+	for {
+		number, _, err := inputReader.ReadLine()
+		if err != nil {
+			err = fmt.Errorf("failed to read input %d, error: %w", len(goodsNumbers)+1, err)
+			log.Fatal(err)
+		}
+		if string(number) == "-" {
+			break
+		}
+		goodsNumbers = append(goodsNumbers, string(number))
+	}
+
+	goods, err := scrapeGoods(goodsNumbers)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(goods)
+
+	if err = formTable(goods); err != nil {
+		log.Fatal(err)
+	}
+
+}
+
+type goodsInfo struct {
+	title string
+	price string
+	unit  string
+}
+
+func scrapeGoods(goodsNumbers []string) ([]goodsInfo, error) {
 	// simplify launching browser with executable path
 	launcherURL := launcher.New().
 		Headless(false).
@@ -25,6 +84,8 @@ func main() {
 		Set("user-data-dir", userData).
 		Set("profile-directory", userProfile).
 		Set("disable-blink-features", "AutomationControlled").
+		// Set("--no-sandbox", "true").
+		// Set("--disable-extensions", "true").
 		MustLaunch()
 
 	browser := rod.New().ControlURL(launcherURL).MustConnect()
@@ -35,8 +96,79 @@ func main() {
 
 	sp := page.MustNavigate(url)
 
-	fmt.Println(sp.MustHTML())
+	time.Sleep(time.Second * 3)
 
-	time.Sleep(time.Second * 30)
+	goods := make([]goodsInfo, len(goodsNumbers))
+	for i, number := range goodsNumbers {
+		searchForBarResult, err := sp.Search(searchBarQuery)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find search bar: %w", err)
+		}
 
+		searchBar := searchForBarResult.First
+
+		err = searchBar.WaitWritable()
+		if err != nil {
+			return nil, fmt.Errorf("failed to wait: %w", err)
+		}
+
+		err = searchBar.Hover()
+		if err != nil {
+			return nil, fmt.Errorf("failed to hover: %w", err)
+		}
+		searchBar.MustClick()
+
+		err = searchBar.Input(number)
+		if err != nil {
+			return nil, fmt.Errorf("failed to input into search bar: %w", err)
+		}
+		time.Sleep(time.Second)
+		searchBar.MustKeyActions().Type(input.Enter).MustDo()
+		time.Sleep(time.Second * 3)
+
+		good := goodsInfo{}
+
+		for elementName, query := range goodsQueries {
+			domSearchResult, err := sp.Search(query)
+			if err != nil {
+				return nil, fmt.Errorf("failed to find %s in dom: %w", elementName, err)
+			}
+			fmt.Println(domSearchResult.First.Text())
+			switch elementName {
+			case title:
+				good.title, err = domSearchResult.First.Text()
+			case price:
+				good.price, err = domSearchResult.First.Text()
+			case unit:
+				good.unit, err = domSearchResult.First.Text()
+			}
+			if err != nil {
+				return nil, fmt.Errorf("failed to get text from %s: %w", elementName, err)
+			}
+		}
+
+		goods[i] = good
+	}
+	return goods, nil
+}
+
+func formTable(goods []goodsInfo) error {
+	// excelize.
+	f := excelize.NewFile()
+	defer func() {
+		if err := f.Close(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	for i, good := range goods {
+		f.SetCellValue("Sheet1", fmt.Sprint("A", i+1), good.title)
+		f.SetCellValue("Sheet1", fmt.Sprint("B", i+1), good.price)
+		f.SetCellValue("Sheet1", fmt.Sprint("C", i+1), good.unit)
+	}
+	if err := f.SaveAs("/Users/iggysleepy/Downloads/GoodsReportTry.xlsx"); err != nil {
+		return err
+	}
+
+	return nil
 }
